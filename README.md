@@ -7,6 +7,6 @@ I use "Arduino nano ESP32" in Arduino IDE, but my real board is Waveshare ESP32-
 
 ---------------------------------------------------
 
-If you want use PuTTY or other terminal, you need enable the "Local echo" and "Local line editing" in settings. Support for these terminals may be a bit spotty at the moment.
+If you want use PuTTY or other terminal, you need enable the "Local echo" and "Local line editing" in settings. Support for these terminals may be unstable at the moment.
 
 ---------------------------------------------------
