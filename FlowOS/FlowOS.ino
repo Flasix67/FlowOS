@@ -23,11 +23,11 @@ void setup() {
 
   digitalWrite(LED_BUILTIN, HIGH);
 
-  registerVar("CPU_FREQ_SLEEP", CPU_FREQ_SLEEP);
-  registerVar("CPU_FREQ_MIN", CPU_FREQ_MIN);
-  registerVar("CPU_FREQ_MID", CPU_FREQ_MID);
-  registerVar("CPU_FREQ_MAX", CPU_FREQ_MAX);
-  registerVar("CPU_OVERHEAT", CPU_OVERHEAT);
+  registerVar("CPU_FREQ_SLEEP", "10");
+  registerVar("CPU_FREQ_MIN", "80");
+  registerVar("CPU_FREQ_MID", "160");
+  registerVar("CPU_FREQ_MAX", "240");
+  registerVar("CPU_OVERHEAT", "0");
 
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -35,7 +35,7 @@ void setup() {
   delay(3000);
 
   Serial.println("-------------------------------------");
-  Serial.println("|         FlowOS 1.0.2(BETA)        |");
+  Serial.println("|         FlowOS 1.0.3(BETA)        |");
   Serial.println("-------------------------------------");
   Serial.println("(Based on Waveshare ESP32S3 NANO N16R8)");
   Serial.println("======================================");
@@ -47,18 +47,25 @@ void setup() {
 
 struct DynVar {
   char name[32];
-  int value;
+  char value[64];
   bool active;
 } dynVars[MAX_VARS];
 int varCount = 0;
 
-void registerVar(const char* name, int initialVal) {
-  if (varCount < MAX_VARS) {
-    strcpy(dynVars[varCount].name, name);
-    dynVars[varCount].value = initialVal;
-    dynVars[varCount].active = true;
-    varCount++;
+void registerVar(const char* name, const char* initialVal) {
+  if (strlen(name) >= 32) {
+    Serial.printf("Error: Variable name '%s' is too long!\n", name);
+    return;
   }
+  if (varCount >= MAX_VARS) {
+    Serial.println("Error: Variable table full.");
+    return;
+  }
+  strcpy(dynVars[varCount].name, name);
+  strncpy(dynVars[varCount].value, initialVal, 63);
+  dynVars[varCount].value[63] = '\0'; // Гарантия завершения строки
+  dynVars[varCount].active = true;
+  varCount++;
 }
 
 int findVar(const char* name) {
@@ -74,7 +81,7 @@ void printAllVars() {
     Serial.println("(empty)");
   } else {
     for (int i = 0; i < varCount; i++) {
-      Serial.printf("  %s = %d\n", dynVars[i].name, dynVars[i].value);
+      Serial.printf("  %s = %s\n", dynVars[i].name, dynVars[i].value);
       Serial.println("-------------------------");
     }
   }
@@ -143,14 +150,14 @@ void loop() {
       setCpuFrequencyMhz(CPU_FREQ_MIN);
       CPU_OVERHEAT = true;
       int idx = findVar("CPU_OVERHEAT");
-      if (idx != -1) dynVars[idx].value = 1;
+      if (idx != -1) strcpy(dynVars[idx].value, "1");
     }
   } else if (CPU_OVERHEAT == true) {
     if (temperatureRead() < 71) {
       setCpuFrequencyMhz(CPU_FREQ_MID);
       CPU_OVERHEAT = false;
       int idx = findVar("CPU_OVERHEAT");
-      if (idx != -1) dynVars[idx].value = 0;
+      if (idx != -1) strcpy(dynVars[idx].value, "0");
     }
   }
 
@@ -187,6 +194,7 @@ void loop() {
       //Serial.println("------In development-----");
       Serial.println("SET [NAME/GPIO] [VALUE] - Change the value. You can also enable GPIO by this command");
       Serial.println("CLEAR - Cleaning the screen");
+      Serial.println("ECHO [TEXT] - Print text to serial monitor. Use %VAR% for variables in text.");
       Serial.println("-------------------------");
     } else if (input == "set" || input.startsWith("set ")) {
       String args = "";
@@ -220,7 +228,7 @@ void loop() {
 
         if (varValue.length() == 0) {
           if (idx != -1) {
-            Serial.printf("%s = %d\n", dynVars[idx].name, dynVars[idx].value);
+            Serial.printf("%s = %s\n", dynVars[idx].name, dynVars[idx].value);
           } else {
             Serial.printf("Variable '%s' not found. Use 'set %s [VALUE]' to create.\n", varName.c_str(), varName.c_str());
           }
@@ -230,36 +238,37 @@ void loop() {
           else if (varValue.equalsIgnoreCase("false")) newVal = 0;
           else newVal = varValue.toInt();
           if (idx != -1) {
-            dynVars[idx].value = newVal;
+            strncpy(dynVars[idx].value, varValue.c_str(), 63);
+            dynVars[idx].value[63] = '\0';
             Serial.printf("Updated: %s = %d\n", dynVars[idx].name, newVal);
 
-            if (strcmp(dynVars[idx].name, "CPU_FREQ_SLEEP") == 0) CPU_FREQ_SLEEP = newVal;
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MIN") == 0) CPU_FREQ_MIN = newVal;
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MID") == 0) CPU_FREQ_MID = newVal;
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MAX") == 0) CPU_FREQ_MAX = newVal;
+            if (strcmp(dynVars[idx].name, "CPU_FREQ_SLEEP") == 0) CPU_FREQ_SLEEP = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MIN") == 0) CPU_FREQ_MIN = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MID") == 0) CPU_FREQ_MID = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MAX") == 0) CPU_FREQ_MAX = varValue.toInt();
             else if (strcmp(dynVars[idx].name, "CPU_OVERHEAT") == 0) {
-            CPU_OVERHEAT = (newVal != 0);
+            CPU_OVERHEAT = (varValue == "1" || varValue.equalsIgnoreCase("true"));
             Serial.printf("%s\n", CPU_OVERHEAT ? "true" : "false");
           }
-          } else {
-            if (varCount >= MAX_VARS) {
-              Serial.println("Error: Variable table full.");
             } else {
-              varName.toCharArray(dynVars[varCount].name, 32);
-              dynVars[varCount].value = newVal;
+              strncpy(dynVars[varCount].name, varName.c_str(), 31);
+              dynVars[varCount].name[31] = '\0';
+              strncpy(dynVars[varCount].value, varValue.c_str(), 63);
+              dynVars[varCount].value[63] = '\0';
               dynVars[varCount].active = true;
-              Serial.printf("Created: %s = %d\n", dynVars[varCount].name, newVal);
+              Serial.printf("Created: %s = %s\n", dynVars[varCount].name, dynVars[varCount].value);
               varCount++;
             }
           }
-        }
-      } else if (input == "info") {
+
+    } else if (input == "info") {
       //digitalWrite(LED_BUILTIN, HIGH);
       Serial.println("|      INFO       |");
       Serial.println("--------------------CPU-----------------------");
       Serial.printf("Chip Model: %s (Cores: %d)\n", ESP.getChipModel(), ESP.getChipCores());
       Serial.printf("CPU Frequency: %d MHz\n", ESP.getCpuFreqMHz());
       Serial.printf("Temperature: %.1f C\n", temperatureRead());
+      Serial.printf("Chip revision: %d\n", ESP.getChipRevision());
       Serial.println("--------------------RAM-----------------------");
       Serial.printf("Free Heap: %d KB\n", ESP.getFreeHeap() / 1024);
       Serial.printf("Total Heap: %d KB\n", ESP.getHeapSize() / 1024);
@@ -270,7 +279,7 @@ void loop() {
       Serial.printf("PSRAM Size: %d KB\n", ESP.getPsramSize() / 1024);
       Serial.printf("Free PSRAM: %d KB\n", ESP.getFreePsram() / 1024);
       Serial.println("-------------------SYSTEM---------------------");
-      Serial.println("FlowOS 1.0.2 BETA by Flasix67");
+      Serial.println("FlowOS 1.0.3 BETA by Flasix67");
       Serial.printf("ESP-IDF Version: %s\n", ESP.getSdkVersion());
       Serial.println("----------------------------------------------");
       //digitalWrite(LED_BUILTIN, LOW);
@@ -424,6 +433,33 @@ void loop() {
     } else if (input == "clear") {
       Serial.print("\033[2J\033[H");
       for (int i = 0; i < 40; i++) Serial.println();
+    } else if (input.startsWith("echo ")) {
+      String msg = input.substring(5);
+      int pos = 0;
+      while (pos < msg.length()) {
+        int startPct = msg.indexOf('%', pos);
+        if (startPct == -1) break;
+        int endPct = msg.indexOf('%', startPct + 1);
+        if (endPct == -1) break;
+        String varName = msg.substring(startPct + 1, endPct);
+        String valStr = "[UNKNOWN]";
+        int idx = findVar(varName.c_str());
+        if (idx != -1) {
+          if (varName == "CPU_OVERHEAT") {
+            valStr = dynVars[idx].value ? "true" : "false";
+          } else {
+            valStr = String(dynVars[idx].value);
+          }
+        }
+        String startPart = msg.substring(0, startPct);
+        String endPart = msg.substring(endPct + 1);
+        msg = startPart + valStr + endPart;
+        pos = startPart.length() + valStr.length();
+      }
+      Serial.println(msg);
+    } 
+    else if (input == "echo") {
+      Serial.println();
     } else {
       Serial.println("Invalid command!");
     }
