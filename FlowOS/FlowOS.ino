@@ -3,6 +3,11 @@
 #include <esp_timer.h>
 
 #define MAX_VARS 64
+String SYS_VER = "1.0.6-RC1";
+String DEVELOPER = "Flasix67";
+String OS_NAME = "FlowOS";
+
+uint32_t systemStartTime = 0;
 
 int CPU_FREQ_SLEEP = 10;
 int CPU_FREQ_MIN = 80;
@@ -15,6 +20,7 @@ bool pingStopRequested = false;
 bool pingStopFlag = false;
 
 void setup() {
+  systemStartTime = millis();
   setCpuFrequencyMhz(CPU_FREQ_MAX);
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
@@ -28,6 +34,9 @@ void setup() {
   registerVar("CPU_FREQ_MID", "160");
   registerVar("CPU_FREQ_MAX", "240");
   registerVar("CPU_OVERHEAT", "0");
+  registerVar("SYS_VER", SYS_VER.c_str());
+  registerVar("DEVELOPER", DEVELOPER.c_str());
+  registerVar("OS_NAME", OS_NAME.c_str());
 
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -35,7 +44,8 @@ void setup() {
   delay(3000);
 
   Serial.println("-------------------------------------");
-  Serial.println("|         FlowOS 1.0.3(BETA)        |");
+  //Serial.println("|  FlowOS 1.0.6(Release-candidate)  |");
+  Serial.printf("|         %s %s          |\n", OS_NAME, SYS_VER);
   Serial.println("-------------------------------------");
   Serial.println("(Based on Waveshare ESP32S3 NANO N16R8)");
   Serial.println("======================================");
@@ -43,6 +53,19 @@ void setup() {
 
   digitalWrite(LED_BUILTIN, LOW);
   setCpuFrequencyMhz(CPU_FREQ_MID);
+}
+
+String getUptimePrecise() {
+  uint32_t totalMs = millis() - systemStartTime;
+  uint32_t ms = totalMs % 1000;
+  uint32_t totalSec = totalMs / 1000;
+  uint32_t h = totalSec / 3600;
+  uint32_t m = (totalSec % 3600) / 60;
+  uint32_t s = totalSec % 60;
+  
+  char buf[15];
+  sprintf(buf, "%02u:%02u:%02u.%03u", h, m, s, ms);
+  return String(buf);
 }
 
 struct DynVar {
@@ -63,7 +86,7 @@ void registerVar(const char* name, const char* initialVal) {
   }
   strcpy(dynVars[varCount].name, name);
   strncpy(dynVars[varCount].value, initialVal, 63);
-  dynVars[varCount].value[63] = '\0'; // Гарантия завершения строки
+  dynVars[varCount].value[63] = '\0';
   dynVars[varCount].active = true;
   varCount++;
 }
@@ -143,6 +166,25 @@ void runPing(String target, int count, bool continuous) {
                 total, success, total-success, (float)(total-success)/total*100);
 }
 
+String formatUptime(uint32_t ms) {
+  uint32_t sec = ms / 1000;
+  uint32_t min = sec / 60;
+  uint32_t hr  = min / 60;
+  uint32_t day = hr / 24;
+  
+  char buf[32];
+  if (day > 0) {
+    sprintf(buf, "%dd %dh %dm %ds", day, hr % 24, min % 60, sec % 60);
+  } else if (hr > 0) {
+    sprintf(buf, "%dh %dm %ds", hr, min % 60, sec % 60);
+  } else if (min > 0) {
+    sprintf(buf, "%dm %ds", min, sec % 60);
+  } else {
+    sprintf(buf, "%ds", sec);
+  }
+  return String(buf);
+}
+
 void loop() {
   if (temperatureRead() > 80) {
     if (CPU_OVERHEAT == false) {
@@ -167,8 +209,7 @@ void loop() {
     if (Serial.peek() == '\r') termChar = '\r';
     String input = Serial.readStringUntil(termChar);
     input.trim();
-    //String input = Serial.readString();
-    Serial.print("> ");
+    Serial.printf("[%s] > ", getUptimePrecise().c_str());
     Serial.println(input);
     if (input.length() == 0) return;
 
@@ -184,17 +225,15 @@ void loop() {
       Serial.println("|   Available commands  |");
       Serial.println("-------------------------");
       Serial.println("REBOOT - Restart ESP");
-      //Serial.println("SET [NAME] [VALUE] - Change the value. You can also enable GPIO by this command");
       Serial.println("INFO - Show the info of CPU/RAM/FLASH/PSRAM/SYSTEM");
-      //Serial.println("BLE [ON/OFF/CONNECT/DISCONNECT/AP] - Start BLE modem");
       Serial.println("SLEEP - Puts the CPU into a power-efficient state");
       Serial.println("WIFI [ON/OFF/SCAN/CONNECT/DISCONNECT/AP] - Start WIFI modem");
-      Serial.println("PING [OPTIONS] [Host] - Show the ping of host");
+      Serial.println("PING [OPTIONS] [Host] - Shows the ping of host");
       Serial.println("STOP - Stops the process like 'ping -t'");
-      //Serial.println("------In development-----");
-      Serial.println("SET [NAME/GPIO] [VALUE] - Change the value. You can also enable GPIO by this command");
+      Serial.println("SET [NAME/GPIO] [VALUE] - Create or change the variable. You can also enable GPIO by this command");
       Serial.println("CLEAR - Cleaning the screen");
-      Serial.println("ECHO [TEXT] - Print text to serial monitor. Use %VAR% for variables in text.");
+      Serial.println("ECHO [TEXT] - Prints text to serial monitor. Use %VAR% for variables in text.");
+      Serial.println("UNSET [NAME] - Removes a variable");
       Serial.println("-------------------------");
     } else if (input == "set" || input.startsWith("set ")) {
       String args = "";
@@ -224,8 +263,8 @@ void loop() {
             return;
           }
         }
+        
         int idx = findVar(varName.c_str());
-
         if (varValue.length() == 0) {
           if (idx != -1) {
             Serial.printf("%s = %s\n", dynVars[idx].name, dynVars[idx].value);
@@ -240,7 +279,7 @@ void loop() {
           if (idx != -1) {
             strncpy(dynVars[idx].value, varValue.c_str(), 63);
             dynVars[idx].value[63] = '\0';
-            Serial.printf("Updated: %s = %d\n", dynVars[idx].name, newVal);
+            Serial.printf("Updated: %s = %s\n", dynVars[idx].name, dynVars[idx].value);
 
             if (strcmp(dynVars[idx].name, "CPU_FREQ_SLEEP") == 0) CPU_FREQ_SLEEP = varValue.toInt();
             else if (strcmp(dynVars[idx].name, "CPU_FREQ_MIN") == 0) CPU_FREQ_MIN = varValue.toInt();
@@ -250,19 +289,25 @@ void loop() {
             CPU_OVERHEAT = (varValue == "1" || varValue.equalsIgnoreCase("true"));
             Serial.printf("%s\n", CPU_OVERHEAT ? "true" : "false");
           }
+            if (strcmp(dynVars[idx].name, "DEVELOPER") == 0) DEVELOPER = varValue;
+            else if (strcmp(dynVars[idx].name, "SYS_VER") == 0) SYS_VER = varValue;
+            else if (strcmp(dynVars[idx].name, "OS_NAME") == 0) OS_NAME = varValue;
             } else {
-              strncpy(dynVars[varCount].name, varName.c_str(), 31);
-              dynVars[varCount].name[31] = '\0';
-              strncpy(dynVars[varCount].value, varValue.c_str(), 63);
-              dynVars[varCount].value[63] = '\0';
-              dynVars[varCount].active = true;
-              Serial.printf("Created: %s = %s\n", dynVars[varCount].name, dynVars[varCount].value);
-              varCount++;
+              if (varCount >= MAX_VARS) {
+                Serial.println("Error: Variable table full.");
+                return;
+              }
+                strncpy(dynVars[varCount].name, varName.c_str(), 31);
+                dynVars[varCount].name[31] = '\0';
+                strncpy(dynVars[varCount].value, varValue.c_str(), 63);
+                dynVars[varCount].value[63] = '\0';
+                dynVars[varCount].active = true;
+                Serial.printf("Created: %s = %s\n", dynVars[varCount].name, dynVars[varCount].value);
+                varCount++;
             }
           }
 
     } else if (input == "info") {
-      //digitalWrite(LED_BUILTIN, HIGH);
       Serial.println("|      INFO       |");
       Serial.println("--------------------CPU-----------------------");
       Serial.printf("Chip Model: %s (Cores: %d)\n", ESP.getChipModel(), ESP.getChipCores());
@@ -271,6 +316,7 @@ void loop() {
       Serial.printf("Chip revision: %d\n", ESP.getChipRevision());
       Serial.println("--------------------RAM-----------------------");
       Serial.printf("Free Heap: %d KB\n", ESP.getFreeHeap() / 1024);
+      Serial.printf("Heap Used:  %d KB\n", (ESP.getHeapSize() - ESP.getFreeHeap()) / 1024);
       Serial.printf("Total Heap: %d KB\n", ESP.getHeapSize() / 1024);
       Serial.println("-------------------FLASH----------------------");
       Serial.printf("Flash Size: %d MB\n", ESP.getFlashChipSize() / (1024 * 1024));
@@ -279,10 +325,11 @@ void loop() {
       Serial.printf("PSRAM Size: %d KB\n", ESP.getPsramSize() / 1024);
       Serial.printf("Free PSRAM: %d KB\n", ESP.getFreePsram() / 1024);
       Serial.println("-------------------SYSTEM---------------------");
-      Serial.println("FlowOS 1.0.3 BETA by Flasix67");
+      Serial.printf("Uptime: %s\n", formatUptime(millis() - systemStartTime).c_str());
+      //Serial.println("FlowOS 1.0.6 BETA by Flasix67");
+      Serial.printf("%s %s by %s\n", OS_NAME.c_str(), SYS_VER.c_str(), DEVELOPER.c_str());
       Serial.printf("ESP-IDF Version: %s\n", ESP.getSdkVersion());
       Serial.println("----------------------------------------------");
-      //digitalWrite(LED_BUILTIN, LOW);
     } else if (input == "sleep") {
       Serial.println("CPU has been send to sleep");
       Serial.println("If you send a command via the Serial Monitor, the CPU will exit sleep mode.");
@@ -398,7 +445,6 @@ void loop() {
           else if (token == "-t") {
             continuous = true;
             count = 999999;
-            //Serial.println("(Continuous ping. Type 'stop' to cancel)");
           }
           else if (token == "-w" || token == "-i" || token == "-l") {
             Serial.printf("(Note: %s not supported by ESPping library)\n", token.c_str());
@@ -457,9 +503,27 @@ void loop() {
         pos = startPart.length() + valStr.length();
       }
       Serial.println(msg);
-    } 
-    else if (input == "echo") {
+    } else if (input == "echo") {
       Serial.println();
+    } else if (input.startsWith("unset ")) {
+      String varName = input;
+      int spacePos = input.indexOf(' ');
+      if (spacePos != -1) varName = input.substring(spacePos + 1);
+      varName.trim();
+      if (varName.length() == 0) {
+        Serial.println("Usage: unset <VARIABLE_NAME>");
+        return;
+      }
+      int idx = findVar(varName.c_str());
+      if (idx != -1) {
+        for (int i = idx; i < varCount - 1; i++) {
+          dynVars[i] = dynVars[i + 1];
+        }
+        varCount--;
+        Serial.printf("Variable '%s' removed.\n", varName.c_str());
+      } else {
+        Serial.printf("Variable '%s' not found.\n", varName.c_str());
+      }
     } else {
       Serial.println("Invalid command!");
     }
