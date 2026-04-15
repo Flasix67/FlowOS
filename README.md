@@ -1,7 +1,7 @@
 # FlowOS
 An operating system for ESP32-S3.
 
-## Supported languages: `Russian`, `English`
+## Supported languages: `Русский`, `English`
 
 # How to install
 > I use "Arduino nano ESP32" in Arduino IDE, but my real board is Waveshare ESP32-S3 nano N16R8. Work on "ESP32-S3 DEV MODULE" may not be impossible but it's worth a try.
