@@ -8,7 +8,8 @@ An operating system for ESP32-S3.
 1. You need to download [Arduino IDE](https://www.arduino.cc/en/software/).
 2. Once you have installed the Arduino IDE, you need to go to the `LIBRARY MANAGER` and install the library `ESPping 1.0.5` by dvarrel, Daniele Colanardi, Marian Crasciunescu.
 3. After you have installed the library, you need to download the lastest version of the system in releases and open the `.ino` file in the [Arduino IDE](https://www.arduino.cc/en/software/).
-4. Connect your ESP32-S3 and click `Upload`.
-5. After successful installation, open `Serial Monitor` on baud rate 115200.
+4. Connect your ESP32-S3 and select the board (in my case `Arduino Nano ESP32`) and select the port.
+5. Click the `Upload` button in [Arduino IDE](https://www.arduino.cc/en/software/) and wait for the installation to complete.
+6. After successful installation, open `Serial Monitor` with baud rate 115200.
 
 ### If you want use PuTTY or other terminal, you need enable the "Local echo" and "Local line editing" in settings. Support for these terminals may be unstable at the moment.
