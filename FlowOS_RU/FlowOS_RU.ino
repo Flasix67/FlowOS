@@ -3,7 +3,7 @@
 #include <esp_timer.h>
 
 #define MAX_VARS 64
-String SYS_VER = "1.0.6-RC1";
+String SYS_VER = "1.1-RC2";
 String DEVELOPER = "Flasix67";
 String OS_NAME = "FlowOS";
 
@@ -43,13 +43,12 @@ void setup() {
 
   delay(3000);
 
-  Serial.println("------------------------------------------");
-  //Serial.println("|  FlowOS 1.0.6(Release-candidate)  |");
-  Serial.printf("|            %s %s            |\n", OS_NAME, SYS_VER);
-  Serial.println("------------------------------------------");
+  Serial.println("-------------------------------------");
+  Serial.printf("|          %s %s           |\n", OS_NAME, SYS_VER);
+  Serial.println("-------------------------------------");
   Serial.println("(Основано на Waveshare ESP32S3 NANO N16R8)");
-  Serial.println("==========================================");
-  Serial.println("Введите комманду : ");
+  Serial.println("======================================");
+  Serial.println("Введите команду : ");
 
   digitalWrite(LED_BUILTIN, LOW);
   setCpuFrequencyMhz(CPU_FREQ_MID);
@@ -81,7 +80,7 @@ void registerVar(const char* name, const char* initialVal) {
     return;
   }
   if (varCount >= MAX_VARS) {
-    Serial.println("Ошибка: Таблица переменных заполнена");
+    Serial.println("Ошибка: Таблица переменных заполнена.");
     return;
   }
   strcpy(dynVars[varCount].name, name);
@@ -144,7 +143,8 @@ void runPing(String target, int count, bool continuous) {
         Serial.printf("\nСтатистика Ping для %s:\n", ip.toString().c_str());
         Serial.printf("    Пакеты: Отправлено = %d, Получено = %d, Потеряно = %d (%.0f%% потеряно)\n", 
                         total, success, total-success, (float)(total-success)/total*100);
-        continue;
+        pingRunning = false;
+        return;
       }
     }
     total++;
@@ -235,80 +235,80 @@ void loop() {
       Serial.println("ECHO [TEXT] - Печатает текст в Serial Monitor. Используйте %VAR% для переменных в тексте.");
       Serial.println("UNSET [NAME] - Удаляет переменную.");
       Serial.println("-------------------------");
-    } else if (input == "set" || input.startsWith("set ")) {
+      } else if (input == "ping" || input.startsWith("ping ")) {
       String args = "";
-      if (input.length() > 4) args = input.substring(4);
+      if (input.length() > 4) {
+        args = input.substring(4);
         args.trim();
-        if (args.length() == 0) {
-          printAllVars();
-          return;
-        }
-        int spaceIdx = args.indexOf(' ');
-        String varName = args;
-        String varValue = "";
-        if (spaceIdx != -1) {
-          varName = args.substring(0, spaceIdx);
-          varValue = args.substring(spaceIdx + 1);
-          varName.trim(); varValue.trim();
-        }
-        bool isGpio = true;
-        for (char c : varName) { if (!isDigit(c)) { isGpio = false; break; } }
-        if (isGpio && spaceIdx != -1) {
-          int pin = varName.toInt();
-          int state = varValue.toInt();
-          if (pin >= 0 && pin <= 48) {
-            pinMode(pin, OUTPUT);
-            digitalWrite(pin, state);
-            Serial.printf("GPIO %d -> %s\n", pin, state ? "HIGH" : "LOW");
-            return;
-          }
-        }
+      }
+      
+      String target = "";
+      int count = 4;
+      bool continuous = false;
+      
+      int idx = 0;
+      while (idx < args.length()) {
+        while (idx < args.length() && args[idx] == ' ') idx++;
+        if (idx >= args.length()) break;
         
-        int idx = findVar(varName.c_str());
-        if (varValue.length() == 0) {
-          if (idx != -1) {
-            Serial.printf("%s = %s\n", dynVars[idx].name, dynVars[idx].value);
-          } else {
-            Serial.printf("Переменная '%s' не найдена. Используйте 'set %s [VALUE]' чтобы создать.\n", varName.c_str(), varName.c_str());
-          }
-        } else {
-          int newVal = 0;
-          if (varValue.equalsIgnoreCase("true")) newVal = 1;
-          else if (varValue.equalsIgnoreCase("false")) newVal = 0;
-          else newVal = varValue.toInt();
-          if (idx != -1) {
-            strncpy(dynVars[idx].value, varValue.c_str(), 63);
-            dynVars[idx].value[63] = '\0';
-            Serial.printf("Обновлено: %s = %s\n", dynVars[idx].name, dynVars[idx].value);
-
-            if (strcmp(dynVars[idx].name, "CPU_FREQ_SLEEP") == 0) CPU_FREQ_SLEEP = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MIN") == 0) CPU_FREQ_MIN = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MID") == 0) CPU_FREQ_MID = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MAX") == 0) CPU_FREQ_MAX = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_OVERHEAT") == 0) {
-            CPU_OVERHEAT = (varValue == "1" || varValue.equalsIgnoreCase("true"));
-            Serial.printf("%s\n", CPU_OVERHEAT ? "true" : "false");
-          }
-            if (strcmp(dynVars[idx].name, "DEVELOPER") == 0) DEVELOPER = varValue;
-            else if (strcmp(dynVars[idx].name, "SYS_VER") == 0) SYS_VER = varValue;
-            else if (strcmp(dynVars[idx].name, "OS_NAME") == 0) OS_NAME = varValue;
-            } else {
-              if (varCount >= MAX_VARS) {
-                Serial.println("Ошибка: Таблица переменных заполнена.");
-                return;
-              }
-                strncpy(dynVars[varCount].name, varName.c_str(), 31);
-                dynVars[varCount].name[31] = '\0';
-                strncpy(dynVars[varCount].value, varValue.c_str(), 63);
-                dynVars[varCount].value[63] = '\0';
-                dynVars[varCount].active = true;
-                Serial.printf("Создано: %s = %s\n", dynVars[varCount].name, dynVars[varCount].value);
-                varCount++;
+        int start = idx;
+        while (idx < args.length() && args[idx] != ' ') idx++;
+        String token = args.substring(start, idx);
+        
+        if (token.startsWith("-")) {
+          if (token == "-n") {
+            while (idx < args.length() && args[idx] == ' ') idx++;
+            if (idx >= args.length()) {
+              Serial.println("Ошибка: Для параметра -n требуется значение.");
+              return;
             }
+            start = idx;
+            while (idx < args.length() && args[idx] != ' ') idx++;
+            String numStr = args.substring(start, idx);
+            
+            bool isNum = true;
+            for (char c : numStr) {
+              if (!isDigit(c)) { isNum = false; break; }
+            }
+            if (!isNum) {
+              Serial.println("Ошибка: параметр -n должен содержать число.");
+              return;
+            }
+            
+            long parsed = numStr.toInt();
+            if (parsed < 1) {
+              Serial.println("Недопустимое значение для параметра -n, минимально допустимый диапазон равен 1.");
+              return;
+            }
+            count = parsed;
           }
-
+          else if (token == "-t") {
+            continuous = true;
+            count = 999999;
+          }
+          else if (token == "-w" || token == "-i" || token == "-l") {
+            Serial.printf("(Примечание: %s не поддерживается в ESPping библиотеке)\n", token.c_str());
+          }
+        }
+        else if (target.isEmpty()) {
+          target = token;
+        }
+      }
+      
+      if (target.isEmpty()) {
+        Serial.println("Использование: ping [опции] <хост>");
+        Serial.println("Примеры: ping 8.8.8.8 | ping -t example.com | ping -n 10 example.com");
+      }
+      else if (pingRunning) {
+        Serial.println("Ошибка: ping уже запущен. Сначала введите 'stop'.");
+      }
+      else {
+        pingRunning = true;
+        pingStopFlag = false;
+        runPing(target, count, continuous);
+      }
     } else if (input == "info") {
-      Serial.println("|      INFO       |");
+      Serial.println("|      Информация       |");
       Serial.println("--------------------CPU-----------------------");
       Serial.printf("Модель чипа: %s (Cores: %d)\n", ESP.getChipModel(), ESP.getChipCores());
       Serial.printf("Частота CPU: %d MHz\n", ESP.getCpuFreqMHz());
@@ -326,7 +326,6 @@ void loop() {
       Serial.printf("PSRAM Свободно: %d KB\n", ESP.getFreePsram() / 1024);
       Serial.println("-------------------SYSTEM---------------------");
       Serial.printf("Время работы: %s\n", formatUptime(millis() - systemStartTime).c_str());
-      //Serial.println("FlowOS 1.0.6 BETA by Flasix67");
       Serial.printf("%s %s от %s\n", OS_NAME.c_str(), SYS_VER.c_str(), DEVELOPER.c_str());
       Serial.printf("ESP-IDF Версия: %s\n", ESP.getSdkVersion());
       Serial.println("----------------------------------------------");
@@ -335,9 +334,23 @@ void loop() {
       Serial.println("Если вы отправете команду через Serial Monitor, то процессор выйдет из этого режима.");
       delay(1000);
       setCpuFrequencyMhz(CPU_FREQ_SLEEP);
-    } else if (input.startsWith("wifi ")) {
-      String sub = input.substring(5);
-      sub.trim();
+    } else if (input == "wifi" || input.startsWith("wifi ")) {
+      String sub = "";
+      if (input.length() > 5) {
+        sub = input.substring(5);
+        sub.trim();
+      }
+
+      if (sub.length() == 0) {
+        Serial.println(F("WiFi команды:"));
+        Serial.println(F("  wifi on          - Включить WiFi (STA mode)"));
+        Serial.println(F("  wifi off         - Выключить WiFi"));
+        Serial.println(F("  wifi scan        - Сканировать WiFi"));
+        Serial.println(F("  wifi connect [SSID] [PASS] - Подключится к WiFi"));
+        Serial.println(F("  wifi ap [SSID] [PASS]      - Запустить точку доступа"));
+        return;
+      }
+
       if (sub == "scan") {
         digitalWrite(LED_GREEN, LOW);
         Serial.println(F("WiFi: Сканирование..."));
@@ -375,99 +388,73 @@ void loop() {
           } else {
             Serial.println(F("\nНе удалось. Проверьте SSID/Pass."));
           }
+        } else {
+          Serial.println(F(": wifi connect [SSID] [PASSWORD]"));
         }
-      } else if (sub == "off") {
+      } 
+      else if (sub == "off") {
         WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
         Serial.println(F("WiFi: OFF"));
         digitalWrite(LED_GREEN, HIGH);
-      } else if (sub == "on") {
+      } 
+      else if (sub == "on") {
         WiFi.mode(WIFI_STA);
         Serial.println(F("WiFi: ON"));
         Serial.print(F("MAC Адрес: "));
         Serial.println(WiFi.macAddress());
         digitalWrite(LED_GREEN, LOW);
-      } else if (sub.startsWith("ap ")) {
-        String args = sub.substring(3);
-        args.trim();
-
-        int spaceIndex = args.indexOf(' ');
-
-        if (spaceIndex != -1) {
-          String userSSID = args.substring(0, spaceIndex);
-          String userPASS = args.substring(spaceIndex + 1);
-          userSSID.trim();
-          userPASS.trim();
-          if (userPASS.length() < 8) {
-            Serial.println(F("Ошибка: Пароль должен содержать не менее 8 символов!"));
-          } else {
-            WiFi.mode(WIFI_AP);
-            digitalWrite(LED_GREEN, LOW);
-            if (WiFi.softAP(userSSID.c_str(), userPASS.c_str())) {
-              Serial.println(F("-------------------------------------"));
-              Serial.println(F("          WiFi: AP ON                "));
-              Serial.print(F("SSID: ")); Serial.println(userSSID);
-              Serial.print(F("PASS: ")); Serial.println(userPASS);
-              Serial.print(F("IP Адрес: ")); Serial.println(WiFi.softAPIP());
-              Serial.println(F("-------------------------------------"));
-            } else {
-              Serial.println(F("WiFi: Критическая ошибка при запуске точки доступа."));
-            }
-          }
-        } else {
+      } 
+      else if (sub == "ap" || sub.startsWith("ap ")) {
+        String args = "";
+        if (sub.length() > 3) {
+          args = sub.substring(3);
+          args.trim();
+        }
+        
+        if (args.length() == 0) {
           Serial.println(F("Использование: wifi ap [SSID] [PASSWORD]"));
+          Serial.println(F("Пример: wifi ap MyNetwork MyPassword123"));
+          return;
         }
-      }
-    } else if (input.startsWith("ping")) {
-      String args = input.substring(5);
-      args.trim();
-      
-      String target = "";
-      int count = 4;
-      bool continuous = false;
-      
-      int idx = 0;
-      while (idx < args.length()) {
-        while (idx < args.length() && args[idx] == ' ') idx++;
-        if (idx >= args.length()) break;
         
-        int start = idx;
-        while (idx < args.length() && args[idx] != ' ') idx++;
-        String token = args.substring(start, idx);
+        int spaceIndex = args.indexOf(' ');
+        if (spaceIndex == -1) {
+          Serial.println(F("Ошибка: Требуется пароль."));
+          Serial.println(F("Использование: wifi ap [SSID] [PASSWORD]"));
+          return;
+        }
         
-        if (token.startsWith("-")) {
-          if (token == "-n" && idx < args.length()) {
-            while (idx < args.length() && args[idx] == ' ') idx++;
-            start = idx;
-            while (idx < args.length() && args[idx] != ' ') idx++;
-            count = args.substring(start, idx).toInt();
-          }
-          else if (token == "-t") {
-            continuous = true;
-            count = 999999;
-          }
-          else if (token == "-w" || token == "-i" || token == "-l") {
-            Serial.printf("(Примечание: %s не поддерживается в ESPping библиотеке)\n", token.c_str());
-          }
+        String userSSID = args.substring(0, spaceIndex);
+        String userPASS = args.substring(spaceIndex + 1);
+        userSSID.trim();
+        userPASS.trim();
+        
+        if (userSSID.length() == 0) {
+          Serial.println(F("Ошибка: SSID не может быть пустым."));
+          return;
         }
-        else if (target.isEmpty()) {
-          target = token;
+        if (userPASS.length() < 8) {
+          Serial.println(F("Ошибка: Пароль должен содержать не менее 8 символов!"));
+          return;
         }
+        
+        WiFi.mode(WIFI_AP);
+        digitalWrite(LED_GREEN, LOW);
+        if (WiFi.softAP(userSSID.c_str(), userPASS.c_str())) {
+          Serial.println(F("-------------------------------------"));
+          Serial.println(F("          WiFi: AP ON                "));
+          Serial.print(F("SSID: ")); Serial.println(userSSID);
+          Serial.print(F("PASS: ")); Serial.println(userPASS);
+          Serial.print(F("IP Адрес: ")); Serial.println(WiFi.softAPIP());
+          Serial.println(F("-------------------------------------"));
+        } else {
+          Serial.println(F("WiFi: Критическая ошибка при запуске точки доступа."));
+        }
+      } else {
+        Serial.printf("Неизвестный параметр WiFi: %s\n", sub.c_str());
+        Serial.println(F("Введите 'wifi' для справки."));
       }
-      
-      if (target.isEmpty()) {
-        Serial.println("Использование: ping [опции] <хост>");
-        Serial.println("Примеры: ping 8.8.8.8 | ping -t google.com | ping -n 10 192.168.1.1");
-      }
-      else if (pingRunning) {
-        Serial.println("Ошибка: ping уже запущен. Сначала введите 'stop'.");
-      }
-      else {
-        pingRunning = true;
-        pingStopFlag = false;
-        runPing(target, count, continuous);
-      }
-      
     } else if (input == "stop") {
       if (pingRunning) {
         pingStopRequested = true;
@@ -505,8 +492,12 @@ void loop() {
       Serial.println(msg);
     } else if (input == "echo") {
       Serial.println();
-    } else if (input.startsWith("unset ")) {
-      String varName = input;
+    } else if (input == "unset" || input.startsWith("unset ")) {
+      String varName = "";
+      if (input.length() > 6) {
+        varName = input.substring(6);
+        varName.trim();
+      }
       int spacePos = input.indexOf(' ');
       if (spacePos != -1) varName = input.substring(spacePos + 1);
       varName.trim();
