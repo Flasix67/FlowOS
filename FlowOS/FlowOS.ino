@@ -3,7 +3,7 @@
 #include <esp_timer.h>
 
 #define MAX_VARS 64
-String SYS_VER = "1.0.6-RC1";
+String SYS_VER = "1.1-RC2";
 String DEVELOPER = "Flasix67";
 String OS_NAME = "FlowOS";
 
@@ -44,8 +44,7 @@ void setup() {
   delay(3000);
 
   Serial.println("-------------------------------------");
-  //Serial.println("|  FlowOS 1.0.6(Release-candidate)  |");
-  Serial.printf("|         %s %s          |\n", OS_NAME, SYS_VER);
+  Serial.printf("|          %s %s           |\n", OS_NAME, SYS_VER);
   Serial.println("-------------------------------------");
   Serial.println("(Based on Waveshare ESP32S3 NANO N16R8)");
   Serial.println("======================================");
@@ -144,7 +143,8 @@ void runPing(String target, int count, bool continuous) {
         Serial.printf("\nPing statistics for %s:\n", ip.toString().c_str());
         Serial.printf("    Packets: Sent = %d, Received = %d, Lost = %d (%.0f%% loss)\n", 
                         total, success, total-success, (float)(total-success)/total*100);
-        continue;
+        pingRunning = false;
+        return;
       }
     }
     total++;
@@ -235,78 +235,78 @@ void loop() {
       Serial.println("ECHO [TEXT] - Prints text to serial monitor. Use %VAR% for variables in text.");
       Serial.println("UNSET [NAME] - Removes a variable");
       Serial.println("-------------------------");
-    } else if (input == "set" || input.startsWith("set ")) {
+    } else if (input == "ping" || input.startsWith("ping ")) {
       String args = "";
-      if (input.length() > 4) args = input.substring(4);
+      if (input.length() > 4) {
+        args = input.substring(4);
         args.trim();
-        if (args.length() == 0) {
-          printAllVars();
-          return;
-        }
-        int spaceIdx = args.indexOf(' ');
-        String varName = args;
-        String varValue = "";
-        if (spaceIdx != -1) {
-          varName = args.substring(0, spaceIdx);
-          varValue = args.substring(spaceIdx + 1);
-          varName.trim(); varValue.trim();
-        }
-        bool isGpio = true;
-        for (char c : varName) { if (!isDigit(c)) { isGpio = false; break; } }
-        if (isGpio && spaceIdx != -1) {
-          int pin = varName.toInt();
-          int state = varValue.toInt();
-          if (pin >= 0 && pin <= 48) {
-            pinMode(pin, OUTPUT);
-            digitalWrite(pin, state);
-            Serial.printf("GPIO %d -> %s\n", pin, state ? "HIGH" : "LOW");
-            return;
-          }
-        }
+      }
+      
+      String target = "";
+      int count = 4;
+      bool continuous = false;
+      
+      int idx = 0;
+      while (idx < args.length()) {
+        while (idx < args.length() && args[idx] == ' ') idx++;
+        if (idx >= args.length()) break;
         
-        int idx = findVar(varName.c_str());
-        if (varValue.length() == 0) {
-          if (idx != -1) {
-            Serial.printf("%s = %s\n", dynVars[idx].name, dynVars[idx].value);
-          } else {
-            Serial.printf("Variable '%s' not found. Use 'set %s [VALUE]' to create.\n", varName.c_str(), varName.c_str());
-          }
-        } else {
-          int newVal = 0;
-          if (varValue.equalsIgnoreCase("true")) newVal = 1;
-          else if (varValue.equalsIgnoreCase("false")) newVal = 0;
-          else newVal = varValue.toInt();
-          if (idx != -1) {
-            strncpy(dynVars[idx].value, varValue.c_str(), 63);
-            dynVars[idx].value[63] = '\0';
-            Serial.printf("Updated: %s = %s\n", dynVars[idx].name, dynVars[idx].value);
-
-            if (strcmp(dynVars[idx].name, "CPU_FREQ_SLEEP") == 0) CPU_FREQ_SLEEP = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MIN") == 0) CPU_FREQ_MIN = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MID") == 0) CPU_FREQ_MID = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MAX") == 0) CPU_FREQ_MAX = varValue.toInt();
-            else if (strcmp(dynVars[idx].name, "CPU_OVERHEAT") == 0) {
-            CPU_OVERHEAT = (varValue == "1" || varValue.equalsIgnoreCase("true"));
-            Serial.printf("%s\n", CPU_OVERHEAT ? "true" : "false");
-          }
-            if (strcmp(dynVars[idx].name, "DEVELOPER") == 0) DEVELOPER = varValue;
-            else if (strcmp(dynVars[idx].name, "SYS_VER") == 0) SYS_VER = varValue;
-            else if (strcmp(dynVars[idx].name, "OS_NAME") == 0) OS_NAME = varValue;
-            } else {
-              if (varCount >= MAX_VARS) {
-                Serial.println("Error: Variable table full.");
-                return;
-              }
-                strncpy(dynVars[varCount].name, varName.c_str(), 31);
-                dynVars[varCount].name[31] = '\0';
-                strncpy(dynVars[varCount].value, varValue.c_str(), 63);
-                dynVars[varCount].value[63] = '\0';
-                dynVars[varCount].active = true;
-                Serial.printf("Created: %s = %s\n", dynVars[varCount].name, dynVars[varCount].value);
-                varCount++;
+        int start = idx;
+        while (idx < args.length() && args[idx] != ' ') idx++;
+        String token = args.substring(start, idx);
+        
+        if (token.startsWith("-")) {
+          if (token == "-n") {
+            while (idx < args.length() && args[idx] == ' ') idx++;
+            if (idx >= args.length()) {
+              Serial.println("Error: Option -n requires a value.");
+              return;
             }
+            start = idx;
+            while (idx < args.length() && args[idx] != ' ') idx++;
+            String numStr = args.substring(start, idx);
+            
+            bool isNum = true;
+            for (char c : numStr) {
+              if (!isDigit(c)) { isNum = false; break; }
+            }
+            if (!isNum) {
+              Serial.println("Error: -n parameter must contain a number.");
+              return;
+            }
+            
+            long parsed = numStr.toInt();
+            if (parsed < 1) {
+              Serial.println("Invalid value for parameter -n, minimum allowed range is 1.");
+              return;
+            }
+            count = parsed;
           }
-
+          else if (token == "-t") {
+            continuous = true;
+            count = 999999;
+          }
+          else if (token == "-w" || token == "-i" || token == "-l") {
+            Serial.printf("(Note: %s not supported by ESPping library)\n", token.c_str());
+          }
+        }
+        else if (target.isEmpty()) {
+          target = token;
+        }
+      }
+      
+      if (target.isEmpty()) {
+        Serial.println("Usage: ping [options] <host>");
+        Serial.println("Examples: ping 8.8.8.8 | ping -t example.com | ping -n 10 example.com");
+      }
+      else if (pingRunning) {
+        Serial.println("Error: Ping already running. Use 'stop' first.");
+      }
+      else {
+        pingRunning = true;
+        pingStopFlag = false;
+        runPing(target, count, continuous);
+      }
     } else if (input == "info") {
       Serial.println("|      INFO       |");
       Serial.println("--------------------CPU-----------------------");
@@ -326,7 +326,6 @@ void loop() {
       Serial.printf("Free PSRAM: %d KB\n", ESP.getFreePsram() / 1024);
       Serial.println("-------------------SYSTEM---------------------");
       Serial.printf("Uptime: %s\n", formatUptime(millis() - systemStartTime).c_str());
-      //Serial.println("FlowOS 1.0.6 BETA by Flasix67");
       Serial.printf("%s %s by %s\n", OS_NAME.c_str(), SYS_VER.c_str(), DEVELOPER.c_str());
       Serial.printf("ESP-IDF Version: %s\n", ESP.getSdkVersion());
       Serial.println("----------------------------------------------");
@@ -335,9 +334,23 @@ void loop() {
       Serial.println("If you send a command via the Serial Monitor, the CPU will exit sleep mode.");
       delay(1000);
       setCpuFrequencyMhz(CPU_FREQ_SLEEP);
-    } else if (input.startsWith("wifi ")) {
-      String sub = input.substring(5);
-      sub.trim();
+    } else if (input == "wifi" || input.startsWith("wifi ")) {
+      String sub = "";
+      if (input.length() > 5) {
+        sub = input.substring(5);
+        sub.trim();
+      }
+
+      if (sub.length() == 0) {
+        Serial.println(F("WiFi commands:"));
+        Serial.println(F("  wifi on          - Turn on WiFi (STA mode)"));
+        Serial.println(F("  wifi off         - Turn off WiFi"));
+        Serial.println(F("  wifi scan        - Scan for networks"));
+        Serial.println(F("  wifi connect [SSID] [PASS] - Connect to network"));
+        Serial.println(F("  wifi ap [SSID] [PASS]      - Start Access Point"));
+        return;
+      }
+
       if (sub == "scan") {
         digitalWrite(LED_GREEN, LOW);
         Serial.println(F("WiFi: Scanning..."));
@@ -375,99 +388,73 @@ void loop() {
           } else {
             Serial.println(F("\nFailed. Check SSID/Pass."));
           }
+        } else {
+          Serial.println(F("Usage: wifi connect [SSID] [PASSWORD]"));
         }
-      } else if (sub == "off") {
+      } 
+      else if (sub == "off") {
         WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
         Serial.println(F("WiFi: OFF"));
         digitalWrite(LED_GREEN, HIGH);
-      } else if (sub == "on") {
+      } 
+      else if (sub == "on") {
         WiFi.mode(WIFI_STA);
         Serial.println(F("WiFi: ON"));
         Serial.print(F("MAC Address: "));
         Serial.println(WiFi.macAddress());
         digitalWrite(LED_GREEN, LOW);
-      } else if (sub.startsWith("ap ")) {
-        String args = sub.substring(3);
-        args.trim();
-
-        int spaceIndex = args.indexOf(' ');
-
-        if (spaceIndex != -1) {
-          String userSSID = args.substring(0, spaceIndex);
-          String userPASS = args.substring(spaceIndex + 1);
-          userSSID.trim();
-          userPASS.trim();
-          if (userPASS.length() < 8) {
-            Serial.println(F("Error: Password must be at least 8 characters!"));
-          } else {
-            WiFi.mode(WIFI_AP);
-            digitalWrite(LED_GREEN, LOW);
-            if (WiFi.softAP(userSSID.c_str(), userPASS.c_str())) {
-              Serial.println(F("-------------------------------------"));
-              Serial.println(F("          WiFi: AP ON                "));
-              Serial.print(F("SSID: ")); Serial.println(userSSID);
-              Serial.print(F("PASS: ")); Serial.println(userPASS);
-              Serial.print(F("IP Address: ")); Serial.println(WiFi.softAPIP());
-              Serial.println(F("-------------------------------------"));
-            } else {
-              Serial.println(F("WiFi: Fatal Error during AP start."));
-            }
-          }
-        } else {
+      } 
+      else if (sub == "ap" || sub.startsWith("ap ")) {
+        String args = "";
+        if (sub.length() > 3) {
+          args = sub.substring(3);
+          args.trim();
+        }
+        
+        if (args.length() == 0) {
           Serial.println(F("Usage: wifi ap [SSID] [PASSWORD]"));
+          Serial.println(F("Example: wifi ap MyNetwork MyPassword123"));
+          return;
         }
-      }
-    } else if (input.startsWith("ping")) {
-      String args = input.substring(5);
-      args.trim();
-      
-      String target = "";
-      int count = 4;
-      bool continuous = false;
-      
-      int idx = 0;
-      while (idx < args.length()) {
-        while (idx < args.length() && args[idx] == ' ') idx++;
-        if (idx >= args.length()) break;
         
-        int start = idx;
-        while (idx < args.length() && args[idx] != ' ') idx++;
-        String token = args.substring(start, idx);
+        int spaceIndex = args.indexOf(' ');
+        if (spaceIndex == -1) {
+          Serial.println(F("Error: Password is required."));
+          Serial.println(F("Usage: wifi ap [SSID] [PASSWORD]"));
+          return;
+        }
         
-        if (token.startsWith("-")) {
-          if (token == "-n" && idx < args.length()) {
-            while (idx < args.length() && args[idx] == ' ') idx++;
-            start = idx;
-            while (idx < args.length() && args[idx] != ' ') idx++;
-            count = args.substring(start, idx).toInt();
-          }
-          else if (token == "-t") {
-            continuous = true;
-            count = 999999;
-          }
-          else if (token == "-w" || token == "-i" || token == "-l") {
-            Serial.printf("(Note: %s not supported by ESPping library)\n", token.c_str());
-          }
+        String userSSID = args.substring(0, spaceIndex);
+        String userPASS = args.substring(spaceIndex + 1);
+        userSSID.trim();
+        userPASS.trim();
+        
+        if (userSSID.length() == 0) {
+          Serial.println(F("Error: SSID cannot be empty."));
+          return;
         }
-        else if (target.isEmpty()) {
-          target = token;
+        if (userPASS.length() < 8) {
+          Serial.println(F("Error: Password must be at least 8 characters!"));
+          return;
         }
+        
+        WiFi.mode(WIFI_AP);
+        digitalWrite(LED_GREEN, LOW);
+        if (WiFi.softAP(userSSID.c_str(), userPASS.c_str())) {
+          Serial.println(F("-------------------------------------"));
+          Serial.println(F("          WiFi: AP ON                "));
+          Serial.print(F("SSID: ")); Serial.println(userSSID);
+          Serial.print(F("PASS: ")); Serial.println(userPASS);
+          Serial.print(F("IP Address: ")); Serial.println(WiFi.softAPIP());
+          Serial.println(F("-------------------------------------"));
+        } else {
+          Serial.println(F("WiFi: Fatal Error during AP start."));
+        }
+      } else {
+        Serial.printf("Unknown WiFi parameter: %s\n", sub.c_str());
+        Serial.println(F("Type 'wifi' for help."));
       }
-      
-      if (target.isEmpty()) {
-        Serial.println("Usage: ping [options] <host>");
-        Serial.println("Examples: ping 8.8.8.8 | ping -t google.com | ping -n 10 192.168.1.1");
-      }
-      else if (pingRunning) {
-        Serial.println("Error: Ping already running. Use 'stop' first.");
-      }
-      else {
-        pingRunning = true;
-        pingStopFlag = false;
-        runPing(target, count, continuous);
-      }
-      
     } else if (input == "stop") {
       if (pingRunning) {
         pingStopRequested = true;
@@ -505,8 +492,12 @@ void loop() {
       Serial.println(msg);
     } else if (input == "echo") {
       Serial.println();
-    } else if (input.startsWith("unset ")) {
-      String varName = input;
+    } else if (input == "unset" || input.startsWith("unset ")) {
+      String varName = "";
+      if (input.length() > 6) {
+        varName = input.substring(6);
+        varName.trim();
+      }
       int spacePos = input.indexOf(' ');
       if (spacePos != -1) varName = input.substring(spacePos + 1);
       varName.trim();
