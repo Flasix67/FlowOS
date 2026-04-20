@@ -3,7 +3,7 @@
 #include <esp_timer.h>
 
 #define MAX_VARS 64
-String SYS_VER = "1.1-RC2";
+String SYS_VER = "1.1-RC3";
 String DEVELOPER = "Flasix67";
 String OS_NAME = "FlowOS";
 
@@ -14,10 +14,10 @@ int CPU_FREQ_MIN = 80;
 int CPU_FREQ_MID = 160;
 int CPU_FREQ_MAX = 240;
 bool CPU_OVERHEAT = false;
+float CPU_TEMP = 0;
 
 bool pingRunning = false;
 bool pingStopRequested = false;
-bool pingStopFlag = false;
 
 void setup() {
   systemStartTime = millis();
@@ -29,6 +29,7 @@ void setup() {
 
   digitalWrite(LED_BUILTIN, HIGH);
 
+  CPU_TEMP = temperatureRead();
   registerVar("CPU_FREQ_SLEEP", "10");
   registerVar("CPU_FREQ_MIN", "80");
   registerVar("CPU_FREQ_MID", "160");
@@ -37,6 +38,7 @@ void setup() {
   registerVar("SYS_VER", SYS_VER.c_str());
   registerVar("DEVELOPER", DEVELOPER.c_str());
   registerVar("OS_NAME", OS_NAME.c_str());
+  registerVar("CPU_TEMP", String(CPU_TEMP, 1).c_str());
 
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -129,24 +131,19 @@ void runPing(String target, int count, bool continuous) {
   int total = 0;
 
   while (continuous || total < count) {
-    if (pingStopRequested) {
-      pingStopRequested = false;
-      pingRunning = false;
-      Serial.println("\nPing stopped.");
-      return;
-    }
     if (Serial.available()) {
       String check = Serial.readStringUntil('\n');
       check.trim();
+      check.toLowerCase();
       if (check == "stop") {
-        pingStopRequested = true;
-        Serial.printf("\nPing statistics for %s:\n", ip.toString().c_str());
-        Serial.printf("    Packets: Sent = %d, Received = %d, Lost = %d (%.0f%% loss)\n", 
-                        total, success, total-success, (float)(total-success)/total*100);
-        pingRunning = false;
-        return;
+        break;
       }
     }
+
+    if (pingStopRequested) {
+      break;
+    }
+
     total++;
     bool result = Ping.ping(ip, 1);
     if (result) {
@@ -157,7 +154,6 @@ void runPing(String target, int count, bool continuous) {
       Serial.println("Request timed out.");
     }
     delay(1000);
-    if (!continuous && total >= count) break;
   }
   pingRunning = false;
   pingStopRequested = false;
@@ -186,7 +182,13 @@ String formatUptime(uint32_t ms) {
 }
 
 void loop() {
-  if (temperatureRead() > 80) {
+  CPU_TEMP = temperatureRead();
+  int idx = findVar("CPU_TEMP");
+  if (idx != -1) {
+    snprintf(dynVars[idx].value, 64, "%.1f", CPU_TEMP);
+  }
+
+  if (CPU_TEMP > 80) {
     if (CPU_OVERHEAT == false) {
       Serial.println("CPU is overheated! The frequency will be reduced to 80MHz");
       setCpuFrequencyMhz(CPU_FREQ_MIN);
@@ -195,7 +197,7 @@ void loop() {
       if (idx != -1) strcpy(dynVars[idx].value, "1");
     }
   } else if (CPU_OVERHEAT == true) {
-    if (temperatureRead() < 71) {
+    if (CPU_TEMP < 71) {
       setCpuFrequencyMhz(CPU_FREQ_MID);
       CPU_OVERHEAT = false;
       int idx = findVar("CPU_OVERHEAT");
@@ -218,9 +220,9 @@ void loop() {
     if (spacePos != -1) cmd = cmd.substring(0, spacePos);
     cmd.toLowerCase();
 
-    if (input == "reboot") {
+    if (cmd == "reboot") {
       ESP.restart();
-    } else if (input == "help") {
+    } else if (cmd == "help") {
       Serial.println("-------------------------");
       Serial.println("|   Available commands  |");
       Serial.println("-------------------------");
@@ -235,7 +237,79 @@ void loop() {
       Serial.println("ECHO [TEXT] - Prints text to serial monitor. Use %VAR% for variables in text.");
       Serial.println("UNSET [NAME] - Removes a variable");
       Serial.println("-------------------------");
-    } else if (input == "ping" || input.startsWith("ping ")) {
+    } else if (cmd == "set") {
+      String args = "";
+      if (input.length() > 4) args = input.substring(4);
+        args.trim();
+        if (args.length() == 0) {
+          printAllVars();
+          return;
+        }
+        int spaceIdx = args.indexOf(' ');
+        String varName = args;
+        String varValue = "";
+        if (spaceIdx != -1) {
+          varName = args.substring(0, spaceIdx);
+          varValue = args.substring(spaceIdx + 1);
+          varName.trim(); varValue.trim();
+        }
+        bool isGpio = true;
+        for (char c : varName) { if (!isDigit(c)) { isGpio = false; break; } }
+        if (isGpio && spaceIdx != -1) {
+          int pin = varName.toInt();
+          int state = varValue.toInt();
+          if (pin >= 0 && pin <= 48) {
+            pinMode(pin, OUTPUT);
+            digitalWrite(pin, state);
+            Serial.printf("GPIO %d -> %s\n", pin, state ? "HIGH" : "LOW");
+            return;
+          }
+        }
+        
+        int idx = findVar(varName.c_str());
+        if (varValue.length() == 0) {
+          if (idx != -1) {
+            Serial.printf("%s = %s\n", dynVars[idx].name, dynVars[idx].value);
+          } else {
+            Serial.printf("Variable '%s' not found. Use 'set %s [VALUE]' to create.\n", varName.c_str(), varName.c_str());
+          }
+        } else {
+          int newVal = 0;
+          if (varValue.equalsIgnoreCase("true")) newVal = 1;
+          else if (varValue.equalsIgnoreCase("false")) newVal = 0;
+          else newVal = varValue.toInt();
+          if (idx != -1) {
+            strncpy(dynVars[idx].value, varValue.c_str(), 63);
+            dynVars[idx].value[63] = '\0';
+            Serial.printf("Updated: %s = %s\n", dynVars[idx].name, dynVars[idx].value);
+
+            if (strcmp(dynVars[idx].name, "CPU_FREQ_SLEEP") == 0) CPU_FREQ_SLEEP = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MIN") == 0) CPU_FREQ_MIN = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MID") == 0) CPU_FREQ_MID = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_FREQ_MAX") == 0) CPU_FREQ_MAX = varValue.toInt();
+            else if (strcmp(dynVars[idx].name, "CPU_OVERHEAT") == 0) {
+            CPU_OVERHEAT = (varValue == "1" || varValue.equalsIgnoreCase("true"));
+            Serial.printf("%s\n", CPU_OVERHEAT ? "true" : "false");
+          }
+            if (strcmp(dynVars[idx].name, "DEVELOPER") == 0) DEVELOPER = varValue;
+            else if (strcmp(dynVars[idx].name, "SYS_VER") == 0) SYS_VER = varValue;
+            else if (strcmp(dynVars[idx].name, "OS_NAME") == 0) OS_NAME = varValue;
+            else if (strcmp(dynVars[idx].name, "CPU_TEMP") == 0) CPU_TEMP = varValue.toFloat();
+            } else {
+              if (varCount >= MAX_VARS) {
+                Serial.println("Error: Variable table full.");
+                return;
+              }
+                strncpy(dynVars[varCount].name, varName.c_str(), 31);
+                dynVars[varCount].name[31] = '\0';
+                strncpy(dynVars[varCount].value, varValue.c_str(), 63);
+                dynVars[varCount].value[63] = '\0';
+                dynVars[varCount].active = true;
+                Serial.printf("Created: %s = %s\n", dynVars[varCount].name, dynVars[varCount].value);
+                varCount++;
+            }
+          }
+    } else if (cmd == "ping") {
       String args = "";
       if (input.length() > 4) {
         args = input.substring(4);
@@ -304,15 +378,14 @@ void loop() {
       }
       else {
         pingRunning = true;
-        pingStopFlag = false;
         runPing(target, count, continuous);
       }
-    } else if (input == "info") {
+    } else if (cmd == "info") {
       Serial.println("|      INFO       |");
       Serial.println("--------------------CPU-----------------------");
       Serial.printf("Chip Model: %s (Cores: %d)\n", ESP.getChipModel(), ESP.getChipCores());
       Serial.printf("CPU Frequency: %d MHz\n", ESP.getCpuFreqMHz());
-      Serial.printf("Temperature: %.1f C\n", temperatureRead());
+      Serial.printf("Temperature: %.1f C\n", CPU_TEMP);
       Serial.printf("Chip revision: %d\n", ESP.getChipRevision());
       Serial.println("--------------------RAM-----------------------");
       Serial.printf("Free Heap: %d KB\n", ESP.getFreeHeap() / 1024);
@@ -329,12 +402,12 @@ void loop() {
       Serial.printf("%s %s by %s\n", OS_NAME.c_str(), SYS_VER.c_str(), DEVELOPER.c_str());
       Serial.printf("ESP-IDF Version: %s\n", ESP.getSdkVersion());
       Serial.println("----------------------------------------------");
-    } else if (input == "sleep") {
+    } else if (cmd == "sleep") {
       Serial.println("CPU has been send to sleep");
       Serial.println("If you send a command via the Serial Monitor, the CPU will exit sleep mode.");
       delay(1000);
       setCpuFrequencyMhz(CPU_FREQ_SLEEP);
-    } else if (input == "wifi" || input.startsWith("wifi ")) {
+    } else if (cmd == "wifi") {
       String sub = "";
       if (input.length() > 5) {
         sub = input.substring(5);
@@ -455,7 +528,7 @@ void loop() {
         Serial.printf("Unknown WiFi parameter: %s\n", sub.c_str());
         Serial.println(F("Type 'wifi' for help."));
       }
-    } else if (input == "stop") {
+    } else if (cmd == "stop") {
       if (pingRunning) {
         pingStopRequested = true;
         Serial.println("Stopping ping...");
@@ -463,7 +536,7 @@ void loop() {
       } else {
         Serial.println("No active task to stop");
       }
-    } else if (input == "clear") {
+    } else if (cmd == "clear") {
       Serial.print("\033[2J\033[H");
       for (int i = 0; i < 40; i++) Serial.println();
     } else if (input.startsWith("echo ")) {
@@ -490,9 +563,9 @@ void loop() {
         pos = startPart.length() + valStr.length();
       }
       Serial.println(msg);
-    } else if (input == "echo") {
+    } else if (cmd == "echo") {
       Serial.println();
-    } else if (input == "unset" || input.startsWith("unset ")) {
+    } else if (cmd == "unset") {
       String varName = "";
       if (input.length() > 6) {
         varName = input.substring(6);
