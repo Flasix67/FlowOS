@@ -3,7 +3,7 @@
 #include <esp_timer.h>
 
 #define MAX_VARS 64
-String SYS_VER = "1.1-RC3";
+String SYS_VER = "1.1";
 String DEVELOPER = "Flasix67";
 String OS_NAME = "FlowOS";
 
@@ -46,7 +46,7 @@ void setup() {
   delay(3000);
 
   Serial.println("-------------------------------------");
-  Serial.printf("|          %s %s           |\n", OS_NAME, SYS_VER);
+  Serial.printf("|            %s %s             |\n", OS_NAME, SYS_VER);
   Serial.println("-------------------------------------");
   Serial.println("(Основано на Waveshare ESP32S3 NANO N16R8)");
   Serial.println("======================================");
@@ -148,7 +148,7 @@ void runPing(String target, int count, bool continuous) {
     bool result = Ping.ping(ip, 1);
     if (result) {
       float avg_time = Ping.averageTime();
-      Serial.printf("Ответ от %s: байтов=32 time=%.0fms\n", ip.toString().c_str(), avg_time);
+      Serial.printf("Ответ от %s: байтов=32 time=%.0fмс\n", ip.toString().c_str(), avg_time);
       success++;
     } else {
       Serial.println("Время ожидания истекло.");
@@ -170,13 +170,13 @@ String formatUptime(uint32_t ms) {
   
   char buf[32];
   if (day > 0) {
-    sprintf(buf, "%dd %dh %dm %ds", day, hr % 24, min % 60, sec % 60);
+    sprintf(buf, "%dд %dч %dм %dс", day, hr % 24, min % 60, sec % 60);
   } else if (hr > 0) {
-    sprintf(buf, "%dh %dm %ds", hr, min % 60, sec % 60);
+    sprintf(buf, "%dч %dм %dс", hr, min % 60, sec % 60);
   } else if (min > 0) {
-    sprintf(buf, "%dm %ds", min, sec % 60);
+    sprintf(buf, "%dм %dс", min, sec % 60);
   } else {
-    sprintf(buf, "%ds", sec);
+    sprintf(buf, "%dс", sec);
   }
   return String(buf);
 }
@@ -190,7 +190,7 @@ void loop() {
   
   if (CPU_TEMP > 80) {
     if (CPU_OVERHEAT == false) {
-      Serial.println("CPU перегрелся! Частота снизится до 80MHz");
+      Serial.println("Процессор перегрелся! Частота снизится до 80MHz");
       setCpuFrequencyMhz(CPU_FREQ_MIN);
       CPU_OVERHEAT = true;
       int idx = findVar("CPU_OVERHEAT");
@@ -382,22 +382,22 @@ void loop() {
       }
     } else if (cmd == "info") {
       Serial.println("|      Информация       |");
-      Serial.println("--------------------CPU-----------------------");
-      Serial.printf("Модель чипа: %s (Cores: %d)\n", ESP.getChipModel(), ESP.getChipCores());
-      Serial.printf("Частота CPU: %d MHz\n", ESP.getCpuFreqMHz());
-      Serial.printf("Температура: %.1f C\n", CPU_TEMP);
+      Serial.println("-----------------Процессор--------------------");
+      Serial.printf("Модель чипа: %s (%d ядер)\n", ESP.getChipModel(), ESP.getChipCores());
+      Serial.printf("Частота CPU: %d МГц\n", ESP.getCpuFreqMHz());
+      Serial.printf("Температура: %.1f °C\n", CPU_TEMP);
       Serial.printf("Ревизия чипа: %d\n", ESP.getChipRevision());
-      Serial.println("--------------------RAM-----------------------");
-      Serial.printf("Heap Свободно: %d KB\n", ESP.getFreeHeap() / 1024);
-      Serial.printf("Heap Использовано:  %d KB\n", (ESP.getHeapSize() - ESP.getFreeHeap()) / 1024);
-      Serial.printf("Всего Heap: %d KB\n", ESP.getHeapSize() / 1024);
+      Serial.println("-------------Оперативная память---------------");
+      Serial.printf("Heap Свободно: %d КБ\n", ESP.getFreeHeap() / 1024);
+      Serial.printf("Heap Использовано:  %d КБ\n", (ESP.getHeapSize() - ESP.getFreeHeap()) / 1024);
+      Serial.printf("Всего Heap: %d КБ\n", ESP.getHeapSize() / 1024);
       Serial.println("-------------------FLASH----------------------");
-      Serial.printf("Flash размер: %d MB\n", ESP.getFlashChipSize() / (1024 * 1024));
-      Serial.printf("Flash скорость: %d MHz\n", ESP.getFlashChipSpeed() / 1000000);
+      Serial.printf("Flash размер: %d МБ\n", ESP.getFlashChipSize() / (1024 * 1024));
+      Serial.printf("Flash скорость: %d МГц\n", ESP.getFlashChipSpeed() / 1000000);
       Serial.println("-------------------PSRAM----------------------");
-      Serial.printf("PSRAM Размер: %d KB\n", ESP.getPsramSize() / 1024);
-      Serial.printf("PSRAM Свободно: %d KB\n", ESP.getFreePsram() / 1024);
-      Serial.println("-------------------SYSTEM---------------------");
+      Serial.printf("PSRAM Размер: %d КБ\n", ESP.getPsramSize() / 1024);
+      Serial.printf("PSRAM Свободно: %d КБ\n", ESP.getFreePsram() / 1024);
+      Serial.println("-------------------Система--------------------");
       Serial.printf("Время работы: %s\n", formatUptime(millis() - systemStartTime).c_str());
       Serial.printf("%s %s от %s\n", OS_NAME.c_str(), SYS_VER.c_str(), DEVELOPER.c_str());
       Serial.printf("ESP-IDF Версия: %s\n", ESP.getSdkVersion());
@@ -433,47 +433,67 @@ void loop() {
         } else {
           Serial.printf("Найдено %d сетей:\n", n);
           for (int i = 0; i < n; ++i) {
-            Serial.printf("%d: %s (%d dBm)\n", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+            Serial.printf("%d: %s (%d дБм)\n", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
           }
         }
         WiFi.scanDelete();
+      } else if (sub.startsWith("connect ")) {
+      String args = sub.substring(8);
+      args.trim();
+      if (args.isEmpty()) {
+        Serial.println("Использование: wifi connect [SSID] [PASSWORD]");
+        return;
       }
-      else if (sub.startsWith("connect ")) {
-        String auth = sub.substring(8);
-        int space = auth.indexOf(' ');
-        if (space != -1) {
-          String ssid = auth.substring(0, space);
-          String pass = auth.substring(space + 1);
-          
-          Serial.printf("Подключение к %s...\n", ssid.c_str());
-          WiFi.begin(ssid.c_str(), pass.c_str());
-          int timer = 0;
-          while (WiFi.status() != WL_CONNECTED && timer < 20) {
-            delay(500);
-            Serial.print(".");
-            timer++;
-          }
 
-          if (WiFi.status() == WL_CONNECTED) {
-            Serial.println(F("\nПодключено!"));
-            Serial.print(F("IP: ")); Serial.println(WiFi.localIP());
-            digitalWrite(LED_GREEN, LOW);
-          } else {
-            Serial.println(F("\nНе удалось. Проверьте SSID/Pass."));
-          }
-        } else {
-          Serial.println(F(": wifi connect [SSID] [PASSWORD]"));
+      String ssid, pass;
+      if (args.startsWith("\"")) {
+        int q1 = args.indexOf('"', 1);
+        ssid = (q1 != -1) ? args.substring(1, q1) : args.substring(1);
+        args = (q1 != -1) ? args.substring(q1 + 1) : "";
+        args.trim();
+      } else {
+        int sp = args.indexOf(' ');
+        if (sp == -1) {
+          Serial.println("Ошибка: Требуется пароль.");
+          return;
         }
-      } 
-      else if (sub == "off") {
+        ssid = args.substring(0, sp);
+        args = args.substring(sp + 1);
+        args.trim();
+      }
+
+      if (args.startsWith("\"")) {
+        int q2 = args.indexOf('"', 1);
+        pass = (q2 != -1) ? args.substring(1, q2) : args.substring(1);
+      } else {
+        pass = args;
+      }
+
+      Serial.printf("Подключение к %s...\n", ssid.c_str());
+      WiFi.begin(ssid.c_str(), pass.c_str());
+      int timer = 0;
+      while (WiFi.status() != WL_CONNECTED && timer < 20) {
+        delay(500);
+        Serial.print(".");
+        timer++;
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println(F("\nПодключено!"));
+        Serial.print(F("IP: ")); Serial.println(WiFi.localIP());
+        digitalWrite(LED_GREEN, LOW);
+      } else {
+        Serial.println(F("\nНе удалось. Проверьте SSID/Pass."));
+      }
+    } else if (sub == "off") {
         WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
-        Serial.println(F("WiFi: OFF"));
+        Serial.println(F("WiFi: Выкл"));
         digitalWrite(LED_GREEN, HIGH);
       } 
       else if (sub == "on") {
         WiFi.mode(WIFI_STA);
-        Serial.println(F("WiFi: ON"));
+        Serial.println(F("WiFi: Вкл"));
         Serial.print(F("MAC Адрес: "));
         Serial.println(WiFi.macAddress());
         digitalWrite(LED_GREEN, LOW);
@@ -516,7 +536,7 @@ void loop() {
         digitalWrite(LED_GREEN, LOW);
         if (WiFi.softAP(userSSID.c_str(), userPASS.c_str())) {
           Serial.println(F("-------------------------------------"));
-          Serial.println(F("          WiFi: AP ON                "));
+          Serial.println(F("          WiFi: AP Вкл                "));
           Serial.print(F("SSID: ")); Serial.println(userSSID);
           Serial.print(F("PASS: ")); Serial.println(userPASS);
           Serial.print(F("IP Адрес: ")); Serial.println(WiFi.softAPIP());
