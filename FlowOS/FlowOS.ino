@@ -3,7 +3,7 @@
 #include <esp_timer.h>
 
 #define MAX_VARS 64
-String SYS_VER = "1.1-RC3";
+String SYS_VER = "1.1";
 String DEVELOPER = "Flasix67";
 String OS_NAME = "FlowOS";
 
@@ -46,7 +46,7 @@ void setup() {
   delay(3000);
 
   Serial.println("-------------------------------------");
-  Serial.printf("|          %s %s           |\n", OS_NAME, SYS_VER);
+  Serial.printf("|            %s %s             |\n", OS_NAME, SYS_VER);
   Serial.println("-------------------------------------");
   Serial.println("(Based on Waveshare ESP32S3 NANO N16R8)");
   Serial.println("======================================");
@@ -437,35 +437,55 @@ void loop() {
           }
         }
         WiFi.scanDelete();
+      } else if (sub.startsWith("connect ")) {
+      String args = sub.substring(8);
+      args.trim();
+      if (args.isEmpty()) {
+        Serial.println("Usage: wifi connect [SSID] [PASSWORD]");
+        return;
       }
-      else if (sub.startsWith("connect ")) {
-        String auth = sub.substring(8);
-        int space = auth.indexOf(' ');
-        if (space != -1) {
-          String ssid = auth.substring(0, space);
-          String pass = auth.substring(space + 1);
-          
-          Serial.printf("Connecting to %s...\n", ssid.c_str());
-          WiFi.begin(ssid.c_str(), pass.c_str());
-          int timer = 0;
-          while (WiFi.status() != WL_CONNECTED && timer < 20) {
-            delay(500);
-            Serial.print(".");
-            timer++;
-          }
 
-          if (WiFi.status() == WL_CONNECTED) {
-            Serial.println(F("\nConnected!"));
-            Serial.print(F("IP: ")); Serial.println(WiFi.localIP());
-            digitalWrite(LED_GREEN, LOW);
-          } else {
-            Serial.println(F("\nFailed. Check SSID/Pass."));
-          }
-        } else {
-          Serial.println(F("Usage: wifi connect [SSID] [PASSWORD]"));
+      String ssid, pass;
+      if (args.startsWith("\"")) {
+        int q1 = args.indexOf('"', 1);
+        ssid = (q1 != -1) ? args.substring(1, q1) : args.substring(1);
+        args = (q1 != -1) ? args.substring(q1 + 1) : "";
+        args.trim();
+      } else {
+        int sp = args.indexOf(' ');
+        if (sp == -1) {
+          Serial.println("Error: Password required.");
+          return;
         }
-      } 
-      else if (sub == "off") {
+        ssid = args.substring(0, sp);
+        args = args.substring(sp + 1);
+        args.trim();
+      }
+
+      if (args.startsWith("\"")) {
+        int q2 = args.indexOf('"', 1);
+        pass = (q2 != -1) ? args.substring(1, q2) : args.substring(1);
+      } else {
+        pass = args;
+      }
+
+      Serial.printf("Connecting to %s...\n", ssid.c_str());
+      WiFi.begin(ssid.c_str(), pass.c_str());
+      int timer = 0;
+      while (WiFi.status() != WL_CONNECTED && timer < 20) {
+        delay(500);
+        Serial.print(".");
+        timer++;
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println(F("\nConnected!"));
+        Serial.print(F("IP: ")); Serial.println(WiFi.localIP());
+        digitalWrite(LED_GREEN, LOW);
+      } else {
+        Serial.println(F("\nFailed. Check SSID/Pass."));
+      }
+    } else if (sub == "off") {
         WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
         Serial.println(F("WiFi: OFF"));
